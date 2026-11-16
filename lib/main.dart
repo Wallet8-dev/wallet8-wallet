@@ -1,20 +1,25 @@
 // SPDX-FileCopyrightText: Copyright Logically Magic Inc. <hello@logicallymagic.com>
 // SPDX-FileCopyrightText: Copyright Hamid Jahanzad <Hamid@Jahanzad.com>
-// SPDX-FileCopyrightText: Copyright Contributors to the Wallet8 Wallet
 // SPDX-License-Identifier: Apache-2.0
 
-/// The Wallet8 reference wallet app.
+/// The Wallet8 reference wallet app - the certification surfaces
+/// (DESIGN.md §11.7): the deep-link routes (the offer intake, the
+/// verifier request) + the pages.
 library;
 
 import 'package:flutter/material.dart';
 
 import 'package:wallet8_flutter/wallet8_flutter.dart';
 
+import 'pages.dart';
+
 void main() {
   runApp(const Wallet8App());
 }
 
-/// The app shell.
+/// The app shell - the route table the suites drive:
+/// `/` the vault, `/scan` the intake, `/offer` + `/request` the
+/// deep links, the consent + outcome routes ride the pages.
 class Wallet8App extends StatelessWidget {
   const Wallet8App({super.key});
 
@@ -25,76 +30,61 @@ class Wallet8App extends StatelessWidget {
           useMaterial3: true,
           colorSchemeSeed: const Color(0xFF0B57D0),
         ),
-        home: const VaultPage(),
+        routes: {
+          '/': (context) => const _WithServices(child: VaultPage()),
+          '/scan': (context) => const _WithServices(child: ScanPage()),
+        },
+        onGenerateRoute: (settings) {
+          // The deep links: the offer (openid-credential-offer://...)
+          // and the verifier request (the request_uri) - the
+          // arguments ride the scanned payload.
+          switch (settings.name) {
+            case '/offer':
+            case '/request':
+              final uri = settings.arguments is String
+                  ? Uri.tryParse(settings.arguments as String)
+                  : null;
+              return MaterialPageRoute<void>(
+                builder: (_) =>
+                    _WithServices(child: ScanPage(initialUri: uri)),
+              );
+            default:
+              return null;
+          }
+        },
       );
 }
 
-/// The credential list (the vault view).
-class VaultPage extends StatefulWidget {
-  const VaultPage({super.key});
+/// The services wrapper (the BFF base derives from the app's own
+/// domain; the dev-tree default is the bootstrap config's).
+class _WithServices extends StatelessWidget {
+  const _WithServices({required this.child});
+
+  final Widget child;
 
   @override
-  State<VaultPage> createState() => _VaultPageState();
-}
-
-class _VaultPageState extends State<VaultPage> {
-  List<StoredCredentialView> _rows = const [];
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    // The BFF base derives from the app's own domain (the platform
-    // rule: bff.{app_domain}); the dev-tree default is the bootstrap
-    // config's.
-    try {
-      final services = WalletServices.create(
-        bffBaseUrl:
-            'https://bff.wallet8.ops.sys.local.sentin8.dev',
-      );
-      final rows = await CredentialStore(services).list();
-      setState(() => _rows = rows);
-    } catch (e) {
-      setState(() => _error = '$e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Wallet8')),
-        body: _error != null
-            ? Center(child: Text(_error!))
-            : _rows.isEmpty
-                ? const Center(
-                    child: Text('No credentials yet - scan an offer QR.'),
-                  )
-                : ListView.builder(
-                    itemCount: _rows.length,
-                    itemBuilder: (context, i) {
-                      final row = _rows[i];
-                      return ListTile(
-                        leading: const Icon(Icons.badge_outlined),
-                        title: Text(row.displayName),
-                        subtitle: Text(
-                            '${row.format} - ${row.doctype ?? row.issuer}'),
-                      );
-                    },
-                  ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () {
-            // The QR scan (the offer intake + the verifier request) -
-            // the camera surface lands with the mobile targets; the
-            // web flow deep-links the QR payload.
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Scan: the QR camera surface')),
+  Widget build(BuildContext context) => FutureBuilder<WalletServices>(
+        future: _services(),
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return WalletContext(
+              services: snapshot.data!,
+              child: child,
             );
-          },
-          icon: const Icon(Icons.qr_code_scanner),
-          label: const Text('Scan'),
-        ),
+          }
+          if (snapshot.hasError) {
+            return Scaffold(
+              body: ErrorPage(
+                error: 'bootstrap error',
+                description: '${snapshot.error}',
+              ),
+            );
+          }
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        },
       );
+
+  Future<WalletServices> _services() async =>
+      WalletServices.create(bffBaseUrl: kDefaultBffBaseUrl);
 }
