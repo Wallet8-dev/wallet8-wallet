@@ -10,6 +10,9 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'dc_api_bridge_stub.dart'
+    if (dart.library.js) 'dc_api_bridge_web.dart';
+
 import 'package:wallet8_flutter/wallet8_flutter.dart';
 
 /// The BFF base (the platform rule: bff.{app_domain}).
@@ -251,7 +254,19 @@ class ConsentPage extends StatelessWidget {
                     ListTile(
                       leading: const Icon(Icons.badge_outlined),
                       title: Text(credential.typeLabel ?? credential.format),
-                      subtitle: Text(credential.claims.join(', ')),
+                      // The claims display (11.11-C): the mdoc form
+                      // renders namespace/element (the §7 two-element
+                      // path) - the format-tagged grouping keeps the
+                      // iso_mdl preview readable.
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(credential.claims.join(', ')),
+                          if (credential.format == 'mso_mdoc')
+                            Text('credential: ${credential.typeLabel ?? 'mDL'}',
+                                style: Theme.of(context).textTheme.bodySmall),
+                        ],
+                      ),
                     ),
                   ],
                 ],
@@ -305,13 +320,29 @@ class ConsentPage extends StatelessWidget {
 /// the browser MUST open (§8.2) or the visible error (§8.5 - the
 /// negative surface the suites screenshot).
 class OutcomePage extends StatelessWidget {
-  const OutcomePage({super.key, required this.outcome});
+  const OutcomePage({super.key, required this.outcome, this.dcState});
 
+  /// The DC API round's pending state (the shim's dc_state) - when
+  /// set the outcome resolves the in-browser credential promise
+  /// (App. A.4: the response rides the promise) IN ADDITION to the
+  /// redirect landing.
   final PresentationOutcome outcome;
+
+  /// The DC API round's pending state (the shim's dc_state) - when
+  /// set the outcome resolves the in-browser credential promise
+  /// (App. A.4: the response rides the promise) IN ADDITION to the
+  /// redirect landing.
+  final String? dcState;
 
   @override
   Widget build(BuildContext context) {
     final error = outcome.error;
+    // The DC API bridge: the shim's window.__wallet8ResolveDcApi
+    // (the web build only; the mobile targets never carry a
+    // dc_state).
+    if (dcState != null) {
+      _resolveDcApi(dcState!, error);
+    }
     return Scaffold(
       appBar: AppBar(
           title: Text(error == null ? 'Presented' : 'Presentation failed')),
@@ -355,6 +386,13 @@ class OutcomePage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// The shim bridge: resolve (or reject) the pending DC API
+  /// credential promise. The shim owns the callback registry; the
+  /// call is a no-op off the web build (kIsWeb guard).
+  void _resolveDcApi(String state, String? error) {
+    resolveDcApiOutcome(state, error, null);
   }
 
   void _openRedirect(BuildContext context, String url) {
@@ -414,3 +452,9 @@ class ErrorPage extends StatelessWidget {
         ),
       );
 }
+
+
+// The DC API shim bridge: the platform's conditional-import form
+// (web -> the JS bridge; the other targets -> the no-op). The shim
+// owns the callback registry; the call resolves (or rejects) the
+// pending credential promise (App. A.4).

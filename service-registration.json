@@ -1,0 +1,32 @@
+{
+  "vertical": "wallet8",
+  "services": [],
+  "apps": [
+    {
+      "slug": "wallet",
+      "web_dir": "build/web",
+      "listing": {
+        "app_name": "Wallet8",
+        "app_slug": "wallet8-wallet",
+        "description": "The Wallet8 reference wallet - the credential vault, the offer intake, the presentation consent and delivery (OID4VCI + OID4VP).",
+        "visibility": "public",
+        "status": "published",
+        "oauth_defaults": {
+          "grant_types": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "response_types": [
+            "code"
+          ],
+          "token_endpoint_auth_method": "none",
+          "scopes": [
+            "openid",
+            "profile",
+            "email"
+          ]
+        }
+      }
+    }
+  ]
+}

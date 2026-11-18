@@ -14,14 +14,55 @@ import 'package:wallet8_flutter/wallet8_flutter.dart';
 import 'pages.dart';
 
 void main() {
-  runApp(const Wallet8App());
+  // The WEB entry's deep-link fragment (11.11-B): `#/offer=<uri>` /
+  // `#/request=<uri>` (the suite's drive + the DC API shim's
+  // dispatch land here; the mobile targets keep the custom-scheme
+  // form through the same routes). The fragment routes BEFORE the
+  // app boots - the initial route carries the payload.
+  final initial = _webFragmentRoute();
+  runApp(Wallet8App(initialRoute: initial?.route ?? '/', initialUri: initial?.uri));
+}
+
+/// The fragment form: `#/offer=<payload>` / `#/request=<payload>` /
+/// `#/request?dc_state=<state>&<the verifier's request_uri>`.
+({String route, Uri uri})? _webFragmentRoute() {
+  final href = Uri.base.fragment;
+  if (href.isEmpty) return null;
+  if (href.startsWith('/offer=')) {
+    final payload = Uri.decodeComponent(href.substring('/offer='.length));
+    final uri = Uri.tryParse(payload);
+    if (uri != null) return (route: '/offer', uri: uri);
+  }
+  if (href.startsWith('/request')) {
+    // The DC API form: /request?dc_state=...&request_uri=... (the
+    // shim's dispatch) OR /request=<uri> (the deep link).
+    final rest = href.substring('/request'.length);
+    if (rest.startsWith('=')) {
+      final payload = Uri.decodeComponent(rest.substring(1));
+      final uri = Uri.tryParse(payload);
+      if (uri != null) return (route: '/request', uri: uri);
+    }
+    // The query form: keep the FULL fragment as the payload (the
+    // ScanPage extracts the request_uri + the dc_state).
+    if (rest.startsWith('?') || rest.isEmpty) {
+      final full = Uri.tryParse(href);
+      if (full != null) return (route: '/request', uri: full);
+    }
+  }
+  return null;
 }
 
 /// The app shell - the route table the suites drive:
 /// `/` the vault, `/scan` the intake, `/offer` + `/request` the
 /// deep links, the consent + outcome routes ride the pages.
 class Wallet8App extends StatelessWidget {
-  const Wallet8App({super.key});
+  const Wallet8App({super.key, this.initialRoute = '/', this.initialUri});
+
+  /// The web fragment's resolved route (11.11-B).
+  final String initialRoute;
+
+  /// The deep-link payload riding the initial route.
+  final Uri? initialUri;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -30,6 +71,7 @@ class Wallet8App extends StatelessWidget {
           useMaterial3: true,
           colorSchemeSeed: const Color(0xFF0B57D0),
         ),
+        initialRoute: initialRoute,
         routes: {
           '/': (context) => const _WithServices(child: VaultPage()),
           '/scan': (context) => const _WithServices(child: ScanPage()),
@@ -41,9 +83,12 @@ class Wallet8App extends StatelessWidget {
           switch (settings.name) {
             case '/offer':
             case '/request':
+              // The initial-route case: the payload rides the app
+              // (the web fragment resolved it at boot); the pushed
+              // route carries it in the settings arguments.
               final uri = settings.arguments is String
                   ? Uri.tryParse(settings.arguments as String)
-                  : null;
+                  : initialUri;
               return MaterialPageRoute<void>(
                 builder: (_) =>
                     _WithServices(child: ScanPage(initialUri: uri)),
